@@ -1,0 +1,46 @@
+[package]
+name = "safecheckpoint"
+version = "0.1.1"
+edition = "2021"
+rust-version = "1.85"
+authors = ["Santh Project <contact@santh.dev>"]
+license = "MIT OR Apache-2.0"
+homepage = "https://santh.dev"
+repository = "https://github.com/santhreal/safecheckpoint"
+description = "A Rust-native ML model checkpoint library replacing torch.save() with zero-copy mmap-based serialization and parallel shard writes."
+keywords = [ "ml", "checkpoint", "tensor", "safetensors" ]
+categories = ["science", "data-structures"]
+
+
+[package.metadata.santh]
+status = "alpha"
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+memmap2 = "=0.9.10"
+tempfile = "=3.27.0"
+rayon = "=1.10.0"
+byteorder = "=1.5.0"
+tracing = "=0.1.44"
+crc32fast = "=1.5.0"
+fs4 = "=0.13.1"
+blake3 = "=1.8.5"
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+criterion = "=0.5.1"
+proptest = "=1.9.0"
+faultkit = { version = "0.1.1" }
+blake3 = "=1.8.5"
+
+[lib]
+name = "safecheckpoint"
+path = "src/lib.rs"
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[test]]
+name = "gap_checkpoint"
+path = "tests/gap/checkpoint_gap.rs"
