@@ -1,9 +1,9 @@
 [package]
 name = "safecheckpoint"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.85"
-authors = ["Santh Project <contact@santh.dev>"]
+authors = ["Santh <64453045+santhreal@users.noreply.github.com>"]
 license = "MIT OR Apache-2.0"
 homepage = "https://santh.dev"
 repository = "https://github.com/santhreal/safecheckpoint"
@@ -30,7 +30,7 @@ blake3 = "=1.8.5"
 tempfile = "=3.27.0"
 criterion = "=0.5.1"
 proptest = "=1.9.0"
-faultkit = { version = "0.1.1" }
+faultkit = { version = "0.2.0" }
 blake3 = "=1.8.5"
 
 [lib]

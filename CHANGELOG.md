@@ -1,5 +1,14 @@
 # Changelog
 
+
+## [0.1.2] - 2026-08-07
+
+### Security
+- Shard index writes use randomized tempfile + atomic persist (no predictable temp name symlink clobber).
+
+### Changed
+- Crate `authors` set to `Santh <64453045+santhreal@users.noreply.github.com>`.
+
 ## [0.1.1] - 2026-07-31
 
 ### Security
