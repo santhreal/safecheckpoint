@@ -104,3 +104,48 @@ fn test_writer_save_bare_relative_filename_is_durable() {
     std::env::set_current_dir(&prev).unwrap();
     result.expect("bare relative filename save+load must succeed");
 }
+#[test]
+fn test_writer_save_relative_path_with_subdirectory() {
+    let dir = tempdir().unwrap();
+    let prev = std::env::current_dir().unwrap();
+    std::env::set_current_dir(dir.path()).unwrap();
+
+    let result = (|| {
+        std::fs::create_dir("sub_dir")?;
+        let mut writer = Writer::new();
+        writer.add_tensor("w1", DType::F32, vec![1], vec![42, 0, 0, 0])?;
+        writer.save("sub_dir/model.safetensors")?;
+
+        let reader = Reader::open("sub_dir/model.safetensors")?;
+        let tensor = reader.get_tensor("w1")?;
+        assert_eq!(tensor.data, vec![42, 0, 0, 0]);
+        Ok::<(), Error>(())
+    })();
+
+    std::env::set_current_dir(&prev).unwrap();
+    result.expect("relative path with subdirectory save+load must succeed");
+}
+
+#[test]
+#[cfg(unix)]
+fn test_writer_rejects_symlink_directory_component() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    let target_dir = dir.path().join("real_dir");
+    std::fs::create_dir(&target_dir).unwrap();
+
+    let symlink_dir = dir.path().join("link_dir");
+    symlink(&target_dir, &symlink_dir).unwrap();
+
+    let save_path = symlink_dir.join("model.safetensors");
+
+    let mut writer = Writer::new();
+    writer.add_tensor("w1", DType::F32, vec![1], vec![0; 4]).unwrap();
+
+    let res = writer.save(&save_path);
+    assert!(
+        matches!(res, Err(Error::PathTraversal { .. })),
+        "write path with symlink directory component must fail closed with PathTraversal, got {res:?}"
+    );
+}

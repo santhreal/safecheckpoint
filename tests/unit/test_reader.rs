@@ -61,3 +61,15 @@ fn test_reader_checksum_mismatch() {
         res
     );
 }
+#[test]
+fn test_reader_open_zero_byte_file_returns_invalid_format() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("zero_byte.safetensors");
+    std::fs::write(&path, &[]).unwrap();
+
+    match Reader::open(&path) {
+        Err(Error::InvalidFormat { offset: 0, .. }) => {}
+        Err(err) => panic!("expected InvalidFormat at offset 0, got Err({err:?})"),
+        Ok(_) => panic!("expected 0-byte file open to fail, got Ok"),
+    }
+}

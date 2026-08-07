@@ -175,7 +175,9 @@ impl Writer {
             });
         }
 
-        // Path traversal defense using path components
+        // Path traversal and symlink component defense
+        crate::writer::reject_symlink_components(directory, |p| std::fs::symlink_metadata(p))?;
+
         for component in directory.components() {
             if component == std::path::Component::ParentDir {
                 return Err(Error::PathTraversal {
@@ -184,7 +186,6 @@ impl Writer {
                 });
             }
         }
-
         let prefix_path = Path::new(prefix);
         for component in prefix_path.components() {
             if component == std::path::Component::ParentDir {
@@ -261,6 +262,12 @@ impl Writer {
     ///
     /// [fixed 2026-04-23] HIGH: exact tensor set match (no extra tensors)
     fn is_shard_valid(shard_path: &Path, expected_tensors: &[WriterTensor<'_>]) -> bool {
+        if std::fs::symlink_metadata(shard_path)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return false;
+        }
         if !shard_path.exists() {
             return false;
         }

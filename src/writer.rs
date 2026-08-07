@@ -82,6 +82,9 @@ impl Writer {
             }
         }
 
+        // Reject symlink components in the input path before canonicalize resolves them.
+        reject_symlink_components(path, |p| std::fs::symlink_metadata(p))?;
+
         let canonical_base = base.canonicalize().map_err(|e| {
             Error::PathTraversal {
                 path: base.to_string_lossy().into_owned(),
@@ -89,7 +92,11 @@ impl Writer {
             }
         })?;
 
-        let full = canonical_base.join(path);
+        let file_name = path.file_name().ok_or_else(|| Error::PathTraversal {
+            path: path.to_string_lossy().into_owned(),
+            reason: "path has no file name".into(),
+        })?;
+        let full = canonical_base.join(file_name);
         let canonical_full = full.canonicalize().or_else(|_| {
             // If the file doesn't exist yet, canonicalize its parent.
             if let Some(parent) = full.parent() {
@@ -115,7 +122,7 @@ impl Writer {
             });
         }
 
-        // Reject symlinks anywhere in the path. Fail CLOSED on any stat error
+        // Reject symlinks anywhere in the resolved path. Fail CLOSED on any stat error
         // other than NotFound - the old `if let Ok(meta)` silently skipped the
         // symlink check for a component whose metadata could not be read.
         reject_symlink_components(&canonical_full, |p| std::fs::symlink_metadata(p))
@@ -317,15 +324,25 @@ impl Writer {
         // this is a best-effort coordination mechanism.
         #[allow(unsafe_code)]
         let mut mmap = unsafe { MmapMut::map_mut(file)? };
-        let mut data_start = 8
-            + usize::try_from(header_len).map_err(|_| Error::InvalidFormat {
-                offset: 0,
-                message: "header length too large for this platform".into(),
-            })?
-            + 32;
+        let header_len_usize = usize::try_from(header_len).map_err(|_| Error::InvalidFormat {
+            offset: 0,
+            message: "header length too large for this platform".into(),
+        })?;
+        let mut data_start = 8usize
+            .checked_add(header_len_usize)
+            .and_then(|s| s.checked_add(32))
+            .ok_or_else(|| Error::OffsetOverflow {
+                tensor_name: "<header total>".into(),
+                offset: header_len_usize,
+            })?;
 
-        for &(_, _, _, data) in tensors {
-            let data_end = data_start + data.len();
+        for &(name, _, _, data) in tensors {
+            let data_end = data_start
+                .checked_add(data.len())
+                .ok_or_else(|| Error::OffsetOverflow {
+                    tensor_name: name.to_string(),
+                    offset: data_start,
+                })?;
             mmap[data_start..data_end].copy_from_slice(data);
             data_start = data_end;
         }
@@ -353,12 +370,19 @@ impl Writer {
 /// ANY other stat error fails CLOSED with `PathTraversal`: a security check
 /// that cannot read a component's metadata must refuse, never silently skip it
 /// (Law 10 / fail-closed for security controls).
-fn reject_symlink_components<F>(leaf: &Path, mut stat: F) -> Result<()>
+pub(crate) fn reject_symlink_components<F>(leaf: &Path, mut stat: F) -> Result<()>
 where
     F: FnMut(&Path) -> std::io::Result<std::fs::Metadata>,
 {
-    let mut current = Some(leaf);
+    // Start from leaf's parent: POSIX atomic rename (NamedTempFile::persist)
+    // safely replaces a leaf symlink target without following it. Ancestor
+    // directory components must be verified not to be symlinks.
+    let mut current = leaf.parent();
     while let Some(p) = current {
+        if p.as_os_str().is_empty() {
+            current = None;
+            continue;
+        }
         match stat(p) {
             Ok(meta) => {
                 if meta.file_type().is_symlink() {

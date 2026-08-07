@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.3] - 2026-08-07
+
+### Security
+- Fixed path validation in `Writer::validate_write_path` to run symlink component checks on input path ancestors *before* `canonicalize()`, preventing symlink directory traversal bypasses where `canonicalize()` resolved symlinks prior to verification.
+- Enforced symlink metadata checks in `Writer::is_shard_valid` and `save_sharded` to reject planted symlinks as valid shard files fail-closed.
+
+### Fixed
+- Fixed directory duplication bug in `Writer::validate_write_path` when saving to relative paths containing subdirectories (e.g. `sub/model.safetensors`).
+- Hardened `Reader::open` size check to return `Error::InvalidFormat { offset: 0, .. }` for 0-byte files before `mmap` allocation, unifying truncated file error handling.
+- Hardened buffer index calculations in `write_tensors_to_file` with `checked_add` to prevent overflow.
+
 
 ## [0.1.2] - 2026-08-07
 

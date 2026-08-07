@@ -55,6 +55,12 @@ impl Reader {
             offset: 0,
             message: "file size does not fit in this platform's address space".into(),
         })?;
+        if file_size < 8 {
+            return Err(Error::InvalidFormat {
+                offset: 0,
+                message: "file too short to contain header length".into(),
+            });
+        }
 
         #[allow(unsafe_code)]
         let mmap = unsafe { Mmap::map(&file)? };
