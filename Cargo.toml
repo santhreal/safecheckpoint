@@ -30,7 +30,7 @@ blake3 = "=1.8.5"
 tempfile = "=3.27.0"
 criterion = "=0.5.1"
 proptest = "=1.9.0"
-faultkit = { version = "0.2.2" }
+faultkit = { path = "../../performance/testing/faultkit" }
 blake3 = "=1.8.5"
 
 [lib]
