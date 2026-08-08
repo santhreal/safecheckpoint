@@ -67,3 +67,92 @@ fn test_save_sharded_zero_shards_errors_not_panics() {
         .join("model.safetensors.index.json")
         .exists());
 }
+#[test]
+fn test_save_sharded_rejects_symlink_directory() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let dir = tempdir().unwrap();
+        let target_dir = dir.path().join("real_shard_dir");
+        fs::create_dir(&target_dir).unwrap();
+
+        let link_dir = dir.path().join("link_shard_dir");
+        symlink(&target_dir, &link_dir).unwrap();
+
+        let mut writer = Writer::new();
+        writer
+            .add_tensor("t1", DType::F32, vec![1], vec![1, 0, 0, 0])
+            .unwrap();
+
+        let err = writer
+            .save_sharded(&link_dir, "model", 1)
+            .expect_err("save_sharded into symlink directory must fail closed");
+        assert!(
+            matches!(err, safecheckpoint::Error::PathTraversal { .. }),
+            "expected PathTraversal error, got {err:?}"
+        );
+    }
+}
+
+#[test]
+fn test_save_sharded_rejects_symlink_lock_file() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let dir = tempdir().unwrap();
+        let victim = dir.path().join("victim.txt");
+        fs::write(&victim, b"secret data").unwrap();
+
+        let lock_path = dir.path().join(".safecheckpoint.lock");
+        symlink(&victim, &lock_path).unwrap();
+
+        let mut writer = Writer::new();
+        writer
+            .add_tensor("t1", DType::F32, vec![1], vec![1, 0, 0, 0])
+            .unwrap();
+
+        let err = writer
+            .save_sharded(dir.path(), "model", 1)
+            .expect_err("save_sharded with symlinked lockfile must fail closed");
+        assert!(
+            matches!(err, safecheckpoint::Error::PathTraversal { .. }),
+            "expected PathTraversal error, got {err:?}"
+        );
+        assert_eq!(
+            fs::read_to_string(&victim).unwrap(),
+            "secret data",
+            "symlink target victim file must not be overwritten or truncated"
+        );
+    }
+}
+
+#[test]
+fn test_is_shard_valid_invalidated_by_metadata_or_shape_mismatch() {
+    let dir = tempdir().unwrap();
+    let mut writer1 = Writer::new();
+    writer1
+        .add_tensor("t1", DType::F32, vec![1], vec![1, 0, 0, 0])
+        .unwrap();
+    writer1.add_metadata("version", "1");
+    writer1.save_sharded(dir.path(), "model", 1).unwrap();
+
+    // Now try to save_sharded with different metadata or tensor shape under same prefix
+    let mut writer2 = Writer::new();
+    writer2
+        .add_tensor("t1", DType::F32, vec![1], vec![2, 0, 0, 0])
+        .unwrap();
+    writer2.add_metadata("version", "2");
+
+    // Saving writer2 should detect metadata difference, overwrite existing shard rather than skipping
+    writer2.save_sharded(dir.path(), "model", 1).unwrap();
+
+    let shard_path = dir.path().join("model-00001-of-00001.safetensors");
+    let reader = Reader::open(&shard_path).unwrap();
+    assert_eq!(
+        reader.metadata().get("version").unwrap(),
+        "2",
+        "shard must have been rewritten with updated metadata"
+    );
+    let tensor = reader.get_tensor("t1").unwrap();
+    assert_eq!(tensor.data, vec![2, 0, 0, 0]);
+}

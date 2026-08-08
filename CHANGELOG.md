@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4] - 2026-08-07
+### Security
+- Enforced directory symlink rejection and symlink lockfile check in `Writer::save_sharded`, preventing path traversal and lock file truncation vulnerabilities when saving sharded checkpoints into symlinked directories.
+
+### Fixed
+- Fixed silent fallback in `Writer::is_shard_valid` where stale or mismatched tensor shapes, data types, and global metadata were silently accepted when validating existing shard files.
+- Hardened `TensorMetadata::validate_with_name` to preserve exact tensor names in error reports instead of generic `(validation)` placeholders.
+
 ## [0.1.3] - 2026-08-07
 
 ### Security

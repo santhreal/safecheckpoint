@@ -78,16 +78,17 @@ fn test_writer_rejects_path_traversal() {
     );
 }
 
+static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn test_writer_save_bare_relative_filename_is_durable() {
-    // A bare filename has `path.parent() == Some("")` (an empty path), not
-    // `None`. Before the fix, the directory-sync opened "" and failed, and the
-    // tempfile base was empty too. Saving to a bare filename must work and the
-    // file must be readable back.
+    let _guard = match CWD_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let dir = tempdir().unwrap();
     let prev = std::env::current_dir().unwrap();
     std::env::set_current_dir(dir.path()).unwrap();
-
     let result = (|| {
         let mut writer = Writer::new();
         writer.add_tensor("w1", DType::F32, vec![1], vec![7, 0, 0, 0])?;
@@ -106,10 +107,13 @@ fn test_writer_save_bare_relative_filename_is_durable() {
 }
 #[test]
 fn test_writer_save_relative_path_with_subdirectory() {
+    let _guard = match CWD_LOCK.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let dir = tempdir().unwrap();
     let prev = std::env::current_dir().unwrap();
     std::env::set_current_dir(dir.path()).unwrap();
-
     let result = (|| {
         std::fs::create_dir("sub_dir")?;
         let mut writer = Writer::new();

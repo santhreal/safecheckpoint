@@ -51,6 +51,15 @@ impl Writer {
 
         // [fixed 2026-04-23] HIGH: directory-level lockfile for save_sharded
         let lock_path = directory.join(".safecheckpoint.lock");
+        if std::fs::symlink_metadata(&lock_path)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(Error::PathTraversal {
+                path: lock_path.to_string_lossy().into_owned(),
+                reason: "lock file path is a symlink".into(),
+            });
+        }
         let lock_file = File::create(&lock_path).map_err(|e| {
             Error::Io(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -81,7 +90,7 @@ impl Writer {
                 let shard_name = format!("{prefix}-{:05}-of-{:05}.safetensors", i + 1, num_shards);
                 let shard_path = directory.join(&shard_name);
 
-                if Self::is_shard_valid(&shard_path, &sorted_tensors[start..end]) {
+                if Self::is_shard_valid(&shard_path, &self.metadata, &sorted_tensors[start..end]) {
                     return Ok(());
                 }
 
@@ -176,8 +185,16 @@ impl Writer {
         }
 
         // Path traversal and symlink component defense
+        if std::fs::symlink_metadata(directory)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(Error::PathTraversal {
+                path: directory.to_string_lossy().into_owned(),
+                reason: "symlinks are not permitted".into(),
+            });
+        }
         crate::writer::reject_symlink_components(directory, |p| std::fs::symlink_metadata(p))?;
-
         for component in directory.components() {
             if component == std::path::Component::ParentDir {
                 return Err(Error::PathTraversal {
@@ -232,7 +249,7 @@ impl Writer {
                 }
             })?;
 
-            for (name, (_, _, expected_data)) in &sorted_tensors[start..end] {
+            for (name, (expected_dtype, expected_shape, expected_data)) in &sorted_tensors[start..end] {
                 let tensor = reader.get_tensor(name.as_str()).map_err(|e| {
                     Error::ShardVerification {
                         shard: shard_name.clone(),
@@ -240,6 +257,22 @@ impl Writer {
                     }
                 })?;
 
+                if tensor.metadata.dtype != *expected_dtype
+                    || &tensor.metadata.shape != expected_shape
+                {
+                    return Err(Error::ShardVerification {
+                        shard: shard_name.clone(),
+                        source: Box::new(Error::SizeMismatch {
+                            tensor_name: (*name).clone(),
+                            expected: expected_shape
+                                .iter()
+                                .try_fold(1usize, |acc, &d| acc.checked_mul(d))
+                                .unwrap_or(0)
+                                * expected_dtype.size_in_bytes(),
+                            actual: tensor.data.len(),
+                        }),
+                    });
+                }
                 let expected_checksum = crc32fast::hash(expected_data);
                 if tensor.metadata.checksum != Some(expected_checksum) {
                     return Err(Error::ShardVerification {
@@ -261,7 +294,11 @@ impl Writer {
     /// Checks if a shard exists and is valid.
     ///
     /// [fixed 2026-04-23] HIGH: exact tensor set match (no extra tensors)
-    fn is_shard_valid(shard_path: &Path, expected_tensors: &[WriterTensor<'_>]) -> bool {
+    fn is_shard_valid(
+        shard_path: &Path,
+        expected_metadata: &HashMap<String, String>,
+        expected_tensors: &[WriterTensor<'_>],
+    ) -> bool {
         if std::fs::symlink_metadata(shard_path)
             .map(|m| m.file_type().is_symlink())
             .unwrap_or(false)
@@ -275,6 +312,10 @@ impl Writer {
             return false;
         };
 
+        if reader.metadata() != expected_metadata {
+            return false;
+        }
+
         let expected_names: std::collections::HashSet<&String> =
             expected_tensors.iter().map(|(name, _)| *name).collect();
         let actual_names: std::collections::HashSet<&String> =
@@ -284,7 +325,15 @@ impl Writer {
             return false;
         }
 
-        for (name, (_, _, expected_data)) in expected_tensors {
+        for (name, (expected_dtype, expected_shape, expected_data)) in expected_tensors {
+            let Ok(tensor) = reader.get_tensor(name.as_str()) else {
+                return false;
+            };
+            if tensor.metadata.dtype != *expected_dtype
+                || &tensor.metadata.shape != expected_shape
+            {
+                return false;
+            }
             let Ok(tensor) = reader.get_tensor(name.as_str()) else {
                 return false;
             };

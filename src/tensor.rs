@@ -76,6 +76,14 @@ impl TensorMetadata {
     /// # Errors
     /// Returns an error if the metadata is invalid.
     pub fn validate(&self) -> Result<(), crate::error::Error> {
+        self.validate_with_name("(validation)")
+    }
+
+    /// Validates the tensor metadata with a specific tensor name for error context.
+    ///
+    /// # Errors
+    /// Returns an error if the metadata is invalid.
+    pub fn validate_with_name(&self, tensor_name: &str) -> Result<(), crate::error::Error> {
         if self.data_offsets[0] > self.data_offsets[1] {
             return Err(crate::error::Error::InvalidFormat {
                 offset: self.data_offsets[0],
@@ -96,7 +104,7 @@ impl TensorMetadata {
         let actual_data_len = self.data_offsets[1] - self.data_offsets[0];
         if expected_data_len != actual_data_len {
             return Err(crate::error::Error::SizeMismatch {
-                tensor_name: "(validation)".to_string(),
+                tensor_name: tensor_name.to_string(),
                 expected: expected_data_len,
                 actual: actual_data_len,
             });

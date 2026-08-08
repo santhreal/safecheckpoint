@@ -168,7 +168,7 @@ impl Reader {
             .get(name)
             .ok_or_else(|| Error::TensorNotFound(name.to_string()))?;
 
-        metadata.validate()?;
+        metadata.validate_with_name(name)?;
 
         let start = self
             .data_offset

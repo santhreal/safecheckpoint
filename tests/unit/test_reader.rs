@@ -73,3 +73,35 @@ fn test_reader_open_zero_byte_file_returns_invalid_format() {
         Ok(_) => panic!("expected 0-byte file open to fail, got Ok"),
     }
 }
+#[test]
+fn test_reader_get_tensor_size_mismatch_preserves_tensor_name() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("mismatch_name.safetensors");
+
+    let header_json = br#"{"schema_version":1,"layer_1_weights":{"dtype":"F32","shape":[10],"data_offsets":[0,16]}}"#;
+    let mut file_bytes = Vec::new();
+    let header_len = header_json.len() as u64;
+    file_bytes.extend_from_slice(&header_len.to_le_bytes());
+    file_bytes.extend_from_slice(header_json);
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&header_len.to_le_bytes());
+    hasher.update(header_json);
+    let checksum = hasher.finalize();
+    file_bytes.extend_from_slice(checksum.as_bytes());
+
+    // 16 bytes of dummy tensor data
+    file_bytes.extend_from_slice(&[0u8; 16]);
+    std::fs::write(&path, &file_bytes).unwrap();
+
+    let reader = Reader::open(&path).unwrap();
+    let res = reader.get_tensor("layer_1_weights");
+    match res {
+        Err(Error::SizeMismatch { tensor_name, expected, actual }) => {
+            assert_eq!(tensor_name, "layer_1_weights", "Error must retain exact tensor name");
+            assert_eq!(expected, 40);
+            assert_eq!(actual, 16);
+        }
+        other => panic!("expected SizeMismatch error with tensor name, got {:?}", other),
+    }
+}
